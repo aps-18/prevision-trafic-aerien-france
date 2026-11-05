@@ -1,0 +1,898 @@
+---
+title: "code_TPC_Amelie_PIRES"
+format: html
+editor: source
+---
+
+# vérification série
+
+```{r, message=FALSE, warning=FALSE}
+#librairies
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tibble)
+library(forecast)
+library(tsoutliers)
+library(moments)
+library(RJDemetra)
+library(smooth)
+library(ggplot2)
+library(seastests)
+```
+
+
+```{r}
+# Création d'une seule database
+
+# files <- list.files(
+#   path = "/Users/ameliepires/Desktop/Documents/FAC/M1/S2/CM techniques de prévision et conjoncture/dossier1/asp-apt-2007-2024",
+#   pattern = "\\.csv$",
+#   full.names = TRUE
+# )
+# 
+# df1 <- files %>%
+#   lapply(read_delim,
+#          delim = ";",
+#          col_types = cols(.default = col_character()),
+#          show_col_types = FALSE) %>%
+#   bind_rows()
+# 
+# df1 <- df1 %>%
+#   mutate(
+#     ANMOIS = as.character(ANMOIS),
+#     date = as.Date(paste0(ANMOIS, "01"), format = "%Y%m%d"),
+#     APT_PAX_dep = parse_number(APT_PAX_dep),
+#     APT_PAX_arr = parse_number(APT_PAX_arr),
+#     APT_PAX_tr  = parse_number(APT_PAX_tr),
+#     pax_total = APT_PAX_dep + APT_PAX_arr
+#   ) %>%
+#   arrange(date)
+# 
+# df <- df1 %>%
+#   group_by(date) %>%
+#   summarise(
+#     pax_total = sum(pax_total, na.rm = TRUE),
+#     .groups = "drop"
+#   )%>%
+#   arrange(date)
+# 
+# write_csv(df, "df.csv")
+
+# importation de la database
+df <- read_csv("df.csv",show_col_types = FALSE) |>
+  mutate(date = as.Date(date),
+         pax_total = as.numeric(pax_total)) |>
+  arrange(date)
+
+# Série temporelle
+ts_data <- ts(df$pax_total, start = c(2007, 1), frequency = 12)
+```
+
+
+```{r}
+#graphique de la période
+plot(df$date, df$pax_total, type = "l",
+     main = "Trafic aérien commercial mensuel en France",
+     xlab = "Date", ylab = "Nombre total de passagers")
+summary(df$pax_total)
+sd(df$pax_total)
+```
+
+```{r}
+#vérif
+sum(is.na(df$pax_total))
+
+boxplot(df$pax_total,
+        main = "Boxplot du trafic aérien",
+        ylab = "Nombre total de passagers")
+
+Q1 <- quantile(df$pax_total, 0.25)
+Q3 <- quantile(df$pax_total, 0.75)
+IQR_val <- Q3 - Q1
+borne_inf <- Q1 - 1.5 * IQR_val
+borne_sup <- Q3 + 1.5 * IQR_val
+
+outliers_box <- df %>%
+  filter(pax_total < borne_inf | pax_total > borne_sup)
+
+outliers_box
+```
+
+```{r}
+acf(ts_data)
+decomp_brute <- decompose(ts_data)
+plot(decomp_brute)
+hist(df$pax_total, breaks = 20)
+shapiro.test(df$pax_total)
+```
+
+# Analyse exploratoire
+
+## a) Présentation et caractérisation de la série étudiée
+
+```{r}
+# Graphique
+plot(ts_data,
+     main = "Série mensuelle",
+     ylab = "Trafic aérien",
+     xlab = "Temps")
+
+# Infos de base
+start(ts_data)
+end(ts_data)
+frequency(ts_data)
+
+# Statistiques descriptives simples
+summary(ts_data)
+```
+
+
+## b) Détection des points atypiques
+
+```{r}
+# Détection des outliers
+outliers <- tso(ts_data)
+
+# Résumé des outliers
+outliers$outliers
+```
+
+```{r}
+# Tableau propre
+dates <- seq(as.Date("2007-01-01"), by = "month", length.out = length(ts_data))
+
+outliers_table <- data.frame(
+  date = dates[outliers$outliers$ind],
+  type = outliers$outliers$type,
+  tstat = outliers$outliers$tstat
+)
+
+outliers_table
+```
+
+```{r}
+# Série corrigée
+serie_corrigee <- outliers$yadj
+
+# Comparaison graphique
+plot(ts_data, col = "black", main = "Série brute vs corrigée")
+lines(serie_corrigee, col = "red")
+legend("topright", legend = c("Brute", "Corrigée"),
+       col = c("black", "red"), lty = 1)
+```
+
+## c) Statistiques descriptives sur la série corrigée
+
+```{r}
+# Statistiques descriptives
+summary(serie_corrigee)
+
+# Moments
+mean(serie_corrigee)
+sd(serie_corrigee)
+
+# Skewness et kurtosis
+skewness(serie_corrigee)
+kurtosis(serie_corrigee)
+
+# Test de normalité
+shapiro.test(serie_corrigee)
+
+# Boxplot
+boxplot(serie_corrigee,
+        main = "Boxplot série corrigée",
+        ylab = "Trafic aérien")
+```
+
+
+```{r}
+#en + 
+
+#Coefficient de variation
+cv <- sd(serie_corrigee) / mean(serie_corrigee)
+cv
+
+#amplitude
+range(serie_corrigee)
+diff(range(serie_corrigee))
+
+hist(serie_corrigee,
+     main = "Histogramme série corrigée",
+     xlab = "Trafic aérien")
+```
+
+
+## d) Détection de la saisonnalité
+
+```{r}
+# ACF
+acf(serie_corrigee,
+    main = "ACF de la série corrigée")
+
+# PACF
+pacf(serie_corrigee,
+     main = "PACF de la série corrigée")
+
+# Décomposition
+decomp <- decompose(serie_corrigee)
+plot(decomp)
+
+# Périodogramme
+spec.pgram(serie_corrigee,
+           main = "Périodogramme",
+           log = "no")
+```
+
+```{r}
+# Graphique par année
+forecast::ggseasonplot(serie_corrigee,
+                       year.labels = TRUE,
+                       year.labels.left = TRUE) +
+  ggplot2::labs(title = "Comparaison de la saisonnalité par année", x = "Mois", y = "Nombre de passagers")
+```
+
+
+```{r}
+#test Kruskal-Wallis
+seastests::qs(serie_corrigee)
+kruskal.test(serie_corrigee ~ cycle(serie_corrigee))
+```
+
+
+## e) Désaisonnaliser et décomposer la série corrigée à partir des méthodes X13-SARIMA-SEATS
+
+```{r}
+# 1. Modèle RegARIMA X13
+reg_x13 <- regarima_x13(serie_corrigee, spec = "RG5c")
+
+# Résumé du modèle
+summary(reg_x13)
+
+# 2. Test log vs niveau (additif ou multiplicatif)
+s_transform(reg_x13)
+
+# 3. Désaisonnalisation complète
+mod_x13 <- x13(serie_corrigee)
+
+# Extraction des composantes
+serie_sa    <- mod_x13$final$series[, "sa"]   # série désaisonnalisée
+serie_trend <- mod_x13$final$series[, "t"]    # tendance
+serie_seas  <- mod_x13$final$series[, "s"]    # saisonnalité
+serie_irreg <- mod_x13$final$series[, "i"]    # irrégulier
+
+# 4. Graphiques
+plot(mod_x13)
+
+# 5. Résumé du modèle complet
+summary(mod_x13)
+
+# 6. Détails du modèle ARIMA sous-jacent
+summary(mod_x13$regarima)
+```
+
+```{r}
+# Résidus X13
+res_x13 <- residuals(mod_x13$regarima)
+
+acf(res_x13, main = "ACF des résidus du modèle X13")
+
+Box.test(res_x13, lag = 12, type = "Ljung-Box")
+```
+
+
+# Prévision de la série saisonnière corrigée des points atypiques sur une année
+
+## a) Estimation et prévision
+
+### (i) méthodes naïve
+
+```{r}
+h <- 12
+
+# 1. Méthode naïve saisonnière
+mod_naive <- snaive(serie_corrigee, h = h)
+mod_naive
+plot(mod_naive)
+
+# 2. X13-SARIMA-SEATS
+mod_x13 <- x13(serie_corrigee)
+
+# résumé général
+summary(mod_x13)
+
+# modèle RegARIMA / SARIMA 
+summary(mod_x13$regarima)
+
+# log ou level
+s_transform(mod_x13$regarima)
+
+# prévisions sur 1 an
+prev_x13 <- mod_x13$final$forecasts
+prev_x13
+
+# graphiques X13
+plot(mod_x13)
+
+# 3. STL
+mod_stl <- stlm(serie_corrigee, s.window = "periodic")
+mod_stl
+
+prev_stl <- forecast(mod_stl, h = h)
+prev_stl
+
+plot(prev_stl)
+
+# 4. STS
+mod_sts <- StructTS(serie_corrigee)
+mod_sts
+
+# variances du modèle STS
+mod_sts$coef
+
+# prévisions sur 1 an
+prev_sts <- forecast(mod_sts, h = h)
+prev_sts
+
+plot(prev_sts)
+```
+
+
+### (ii) méthodes de lissage exponentiel
+
+```{r}
+h <- 12
+
+# 1. Holt-Winters
+mod_hw <- hw(serie_corrigee, seasonal = "additive", h = h)
+summary(mod_hw)
+plot(mod_hw)
+
+# 2. ETS
+mod_ets <- ets(serie_corrigee)
+summary(mod_ets)
+
+prev_ets <- forecast(mod_ets, h = h)
+prev_ets
+plot(prev_ets)
+
+# 3. TBATS
+mod_tbats <- tbats(serie_corrigee)
+summary(mod_tbats)
+
+prev_tbats <- forecast(mod_tbats, h = h)
+prev_tbats
+plot(prev_tbats)
+
+# 4. ADAM
+mod_adam <- adam(serie_corrigee, h = h)
+summary(mod_adam)
+
+prev_adam <- forecast(mod_adam, h = h)
+prev_adam
+plot(prev_adam)
+```
+
+
+### (iii) les modèles SARIMA(p,d,q)(P,D,Q)12 et SSARIMA
+
+```{r}
+h <- 12
+
+# 1. SARIMA automatique
+mod_sarima_auto <- auto.arima(
+  serie_corrigee,
+  seasonal = TRUE,
+  stepwise = FALSE,
+  approximation = FALSE
+)
+
+summary(mod_sarima_auto)
+
+# Prévisions
+prev_sarima_auto <- forecast(mod_sarima_auto, h = h)
+
+# Graphique
+plot(prev_sarima_auto)
+
+# 2. SARIMA manuel (exemple avec X13)
+mod_sarima_manual <- Arima(
+  serie_corrigee,
+  order = c(1,1,1),
+  seasonal = c(0,1,1)
+)
+
+summary(mod_sarima_manual)
+
+# Prévisions
+prev_sarima_manual <- forecast(mod_sarima_manual, h = h)
+
+# Graphique
+plot(prev_sarima_manual)
+
+# 3. SSARIMA (sur série désaisonnalisée)
+
+# On utilise la série SA (X13)
+serie_sa <- mod_x13$final$series[, "sa"]
+
+# Modèle ARIMA sur série sans saisonnalité
+mod_ssarima <- auto.arima(
+  serie_sa,
+  seasonal = FALSE
+)
+
+summary(mod_ssarima)
+
+# Prévisions sur série désaisonnalisée
+prev_ssarima_sa <- forecast(mod_ssarima, h = h)
+
+# Re-saisonnalisation
+# On récupère les coefficients saisonniers
+seasonality <- mod_x13$final$series[, "s"]
+
+# On prend les 12 derniers mois de saisonnalité
+last_season <- tail(seasonality, 12)
+
+# On répète pour horizon h
+season_future <- rep(last_season, length.out = h)
+
+# Reconstruction série finale
+prev_ssarima <- prev_ssarima_sa$mean * season_future
+
+# Graphique
+ts.plot(serie_corrigee, prev_ssarima, col = c("black", "blue"))
+```
+
+```{r}
+# Diagnostics ETS
+checkresiduals(mod_ets)
+
+# Diagnostics SARIMA auto
+checkresiduals(mod_sarima_auto)
+```
+
+
+# b) tableau de comparaison des paramètres des modèles
+
+```{r}
+# TABLEAU COMPARATIF DES MODELES
+
+# petite fonction utilitaire : renvoie 1 seul nombre ou NA
+safe_num <- function(x) {
+  out <- tryCatch(x, error = function(e) NA)
+  out <- as.numeric(out)
+  if (length(out) == 0) return(NA_real_)
+  out[1]
+}
+
+comparaison <- data.frame(
+  Modele = c(
+    "X13-SARIMA",
+    "STL",
+    "Holt-Winters",
+    "ETS",
+    "TBATS",
+    "ADAM",
+    "SARIMA auto",
+    "SARIMA manuel",
+    "SSARIMA"
+  ),
+  AIC = c(
+    safe_num(AIC(mod_x13$regarima)),
+    NA_real_,
+    safe_num(mod_hw$model$AIC),
+    safe_num(mod_ets$aic),
+    safe_num(mod_tbats$AIC),
+    safe_num(mod_adam$ic["AIC"]),
+    safe_num(AIC(mod_sarima_auto)),
+    safe_num(AIC(mod_sarima_manual)),
+    safe_num(AIC(mod_ssarima))
+  ),
+  AICc = c(
+    safe_num(AICc(mod_x13$regarima)),
+    NA_real_,
+    safe_num(mod_hw$model$AICc),
+    safe_num(mod_ets$aicc),
+    NA_real_,
+    safe_num(mod_adam$ic["AICc"]),
+    safe_num(AICc(mod_sarima_auto)),
+    safe_num(AICc(mod_sarima_manual)),
+    safe_num(AICc(mod_ssarima))
+  )
+)
+
+comparaison <- comparaison %>%
+  arrange(AIC)
+
+comparaison
+```
+
+
+```{r}
+table_parametres <- data.frame(
+  Modele = c("Holt-Winters", "ETS", "ADAM", "SARIMA auto", "SARIMA manuel"),
+  Parametres = c(
+    "alpha=0.4922, beta=0.0033, gamma=0.0001",
+    "alpha=0.4065, beta=0.0085, gamma=0.0001, phi=0.9761",
+    "alpha=0.4178, beta=0.0000, gamma=0.0933",
+    paste(names(coef(mod_sarima_auto)), round(coef(mod_sarima_auto), 4), collapse = ", "),
+    paste(names(coef(mod_sarima_manual)), round(coef(mod_sarima_manual), 4), collapse = ", ")
+  ),
+  stringsAsFactors = FALSE
+)
+
+table_parametres
+```
+
+```{r}
+comparaison_modeles <- data.frame(
+  Modele = c("Holt-Winters", "ETS", "TBATS", "ADAM", "SARIMA auto", "SARIMA manuel", "SSARIMA"),
+  AIC = c(6913.893, 6843.232, 6864.542, 6276.641, 5946.857, 5958.497, 6194.643),
+  AICc = c(6916.983, 6846.704, NA, 6276.831, 5947.283, 5958.699, 6194.756)
+)
+comparaison_modeles <- comparaison_modeles[order(comparaison_modeles$AIC), ]
+comparaison_modeles
+
+x13_infos <- data.frame(
+  Modele = "X13-SARIMA-SEATS",
+  AIC = AIC(mod_x13$regarima),
+  AICc = AICc(mod_x13$regarima)
+)
+
+x13_infos
+```
+
+
+# Représentation graphique de l’évolution des prévisions des différents modèles 
+```{r}
+h <- 12
+
+# prévisions
+prev_naive <- mod_naive
+prev_hw    <- mod_hw
+prev_ets   <- prev_ets
+prev_tbats <- prev_tbats
+prev_adam  <- prev_adam
+prev_sarima <- prev_sarima_auto
+
+# X13
+prev_x13_series <- ts(prev_x13[, "y_f"],
+                      start = c(2025,1),
+                      frequency = 12)
+
+# SSARIMA déjà reconstruit :
+prev_ssarima_series <- ts(prev_ssarima,
+                         start = c(2025,1),
+                         frequency = 12)
+
+
+#graphique global
+
+plot(serie_corrigee,
+     xlim = c(2018, 2026),
+     main = "Comparaison des prévisions",
+     ylab = "Trafic aérien",
+     col = "black",
+     lwd = 2)
+
+lines(prev_naive$mean, col = "blue", lwd = 2)
+lines(prev_hw$mean, col = "red", lwd = 2)
+lines(prev_ets$mean, col = "green", lwd = 2)
+lines(prev_tbats$mean, col = "purple", lwd = 2)
+lines(prev_adam$mean, col = "orange", lwd = 2)
+lines(prev_sarima$mean, col = "brown", lwd = 2)
+lines(prev_ssarima_series, col = "pink", lwd = 2)
+lines(prev_x13_series, col = "cyan", lwd = 2)
+
+legend("topleft",
+       legend = c("Réel",
+                  "Naive",
+                  "Holt-Winters",
+                  "ETS",
+                  "TBATS",
+                  "ADAM",
+                  "SARIMA",
+                  "SSARIMA",
+                  "X13"),
+       col = c("black","blue","red","green","purple","orange","brown","pink","cyan"),
+       lty = 1,
+       cex = 0.7)
+```
+
+
+# Qualité de prévision : MSE et R2OOS de tous les modèles + graphique 
+
+```{r}
+#Split train / test (pour OOS)
+
+# horizon de test = 12 mois
+h <- 12
+
+# taille totale
+n <- length(serie_corrigee)
+
+# train / test
+train <- window(serie_corrigee, end = time(serie_corrigee)[n - h])
+test  <- window(serie_corrigee, start = time(serie_corrigee)[n - h + 1])
+```
+
+
+```{r}
+#Ré-estimer TOUS les modèles sur TRAIN
+
+# NAIVE
+mod_naive <- snaive(train, h = h)
+
+# X13
+mod_x13 <- x13(train)
+prev_x13 <- mod_x13$final$forecasts[, "y_f"]
+
+# STL
+mod_stl <- stlm(train, s.window = "periodic")
+prev_stl <- forecast(mod_stl, h = h)$mean
+
+# STS
+mod_sts <- StructTS(train)
+prev_sts <- forecast(mod_sts, h = h)$mean
+
+# HOLT-WINTERS
+mod_hw <- hw(train, seasonal = "additive", h = h)
+
+# ETS
+mod_ets <- ets(train)
+prev_ets <- forecast(mod_ets, h = h)$mean
+
+# TBATS
+mod_tbats <- tbats(train)
+prev_tbats <- forecast(mod_tbats, h = h)$mean
+
+# ADAM
+mod_adam <- adam(train)
+prev_adam <- forecast(mod_adam, h = h)
+
+# SARIMA auto
+mod_sarima_auto <- auto.arima(train)
+prev_sarima_auto <- forecast(mod_sarima_auto, h = h)$mean
+
+# SARIMA manuel
+mod_sarima_manual <- Arima(train, order = c(1,1,1), seasonal = c(0,1,1))
+prev_sarima_manual <- forecast(mod_sarima_manual, h = h)$mean
+
+# SSARIMA (sur série SA)
+mod_x13_train <- x13(train)
+serie_sa_train <- mod_x13_train$final$series[, "sa"]
+
+mod_ssarima <- auto.arima(serie_sa_train, seasonal = FALSE)
+prev_ssarima_sa <- forecast(mod_ssarima, h = h)$mean
+
+# re-saisonnalisation
+seasonality <- mod_x13_train$final$series[, "s"]
+last_season <- tail(seasonality, 12)
+season_future <- rep(last_season, length.out = h)
+
+prev_ssarima <- prev_ssarima_sa * season_future
+```
+
+
+```{r}
+#Mettre toutes les prévisions ensemble
+
+predictions <- list(
+  naive = mod_naive$mean,
+  x13 = prev_x13,
+  stl = prev_stl,
+  sts = prev_sts,
+  hw = mod_hw$mean,
+  ets = prev_ets,
+  tbats = prev_tbats,
+  adam = prev_adam$mean,
+  sarima_auto = prev_sarima_auto,
+  sarima_manual = prev_sarima_manual,
+  ssarima = prev_ssarima
+)
+```
+
+```{r}
+#Fonction MSE
+
+mse <- function(y, yhat) {
+  mean((y - yhat)^2, na.rm = TRUE)
+}
+
+#Calcul MSE pour chaque modèle
+
+mse_results <- sapply(predictions, function(p) mse(test, p))
+mse_results
+```
+
+```{r}
+#R² OOS (out-of-sample)
+
+mse_naive <- mse_results["naive"]
+
+r2_oos <- 1 - (mse_results / mse_naive)
+r2_oos
+```
+
+
+```{r}
+#tableau final 
+
+resultats <- data.frame(
+  Modele = names(mse_results),
+  MSE = as.numeric(mse_results),
+  R2_OOS = as.numeric(r2_oos)
+)
+
+resultats[order(resultats$MSE), ]
+```
+
+
+```{r}
+#CSPE (Cumulative Squared Prediction Error)
+cspe <- function(y, yhat) {
+  cumsum((y - yhat)^2)
+}
+
+cspe_list <- lapply(predictions, function(p) cspe(test, p))
+
+#graphique CSPE 
+plot(cspe_list[[1]], type = "l", col = 1, lwd = 2,
+     ylab = "CSPE", xlab = "Temps",
+     main = "Comparaison CSPE")
+
+for(i in 2:length(cspe_list)){
+  lines(cspe_list[[i]], col = i, lwd = 2)
+}
+
+legend("topleft",
+       legend = names(cspe_list),
+       col = 1:length(cspe_list),
+       lty = 1, cex = 0.8)
+```
+
+
+# Test de Diebold-Mariano : comparaison avec le modèle AR(1)
+
+```{r}
+h_dm <- 24
+n <- length(serie_corrigee)
+
+test_dm <- window(
+  serie_corrigee,
+  start = time(serie_corrigee)[n - h_dm + 1]
+)
+
+fc_1step <- function(train, model_name){
+  
+  if(model_name == "naive"){
+    fit <- snaive(train, h = 1)
+    return(as.numeric(fit$mean))
+  }
+  
+  if(model_name == "x13"){
+    fit <- x13(train)
+    return(as.numeric(fit$final$forecasts[1, "y_f"]))
+  }
+  
+  if(model_name == "stl"){
+    fit <- stlm(train, s.window = "periodic")
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "sts"){
+    fit <- StructTS(train)
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "hw"){
+    fit <- hw(train, seasonal = "additive", h = 1)
+    return(as.numeric(fit$mean))
+  }
+  
+  if(model_name == "ets"){
+    fit <- ets(train)
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "tbats"){
+    fit <- tbats(train)
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "adam"){
+    fit <- adam(train)
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "sarima_auto"){
+    fit <- auto.arima(train, seasonal = TRUE)
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "sarima_manual"){
+    fit <- Arima(train, order = c(1,1,1), seasonal = c(0,1,1))
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+  
+  if(model_name == "ssarima"){
+    fit_x13 <- x13(train)
+    sa_train <- fit_x13$final$series[, "sa"]
+    fit <- auto.arima(sa_train, seasonal = FALSE)
+    fc_sa <- as.numeric(forecast(fit, h = 1)$mean)
+    
+    # Re-saisonnalisation avec le dernier coefficient saisonnier
+    seas <- fit_x13$final$series[, "s"]
+    seas_next <- tail(seas, 1)
+    
+    return(fc_sa * seas_next)
+  }
+  
+  if(model_name == "ar1"){
+    fit <- Arima(train, order = c(1,0,0))
+    return(as.numeric(forecast(fit, h = 1)$mean))
+  }
+}
+```
+
+```{r}
+# Test de Diebold-Mariano chaque modèle est comparé au modèle AR(1)
+
+modeles <- c(
+  "naive", "x13", "stl", "sts", "hw", "ets", "tbats",
+  "adam", "sarima_auto", "sarima_manual", "ssarima"
+)
+
+preds_1step <- lapply(modeles, function(m) numeric(h_dm))
+names(preds_1step) <- modeles
+
+pred_ar1 <- numeric(h_dm)
+
+for (i in 1:h_dm) {
+  
+  train_i <- window(
+    serie_corrigee,
+    end = time(serie_corrigee)[n - h_dm + i - 1]
+  )
+  
+  pred_ar1[i] <- fc_1step(train_i, "ar1")
+  
+  for (m in modeles) {
+    preds_1step[[m]][i] <- fc_1step(train_i, m)
+  }
+}
+
+dm_table <- data.frame(
+  Modele = character(),
+  DM_stat = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for(m in modeles){
+  
+  e_model <- as.numeric(test_dm) - preds_1step[[m]]
+  e_ar1 <- as.numeric(test_dm) - pred_ar1
+  
+  dm_res <- dm.test(
+    e1 = e_model,
+    e2 = e_ar1,
+    alternative = "less",
+    h = 1,
+    power = 2,
+    varestimator = "bartlett"
+  )
+  
+  dm_table <- rbind(
+    dm_table,
+    data.frame(
+      Modele = m,
+      DM_stat = as.numeric(dm_res$statistic),
+      p_value = dm_res$p.value
+    )
+  )
+}
+
+dm_table <- dm_table[order(dm_table$p_value), ]
+dm_table
+```
