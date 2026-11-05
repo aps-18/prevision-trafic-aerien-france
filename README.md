@@ -37,6 +37,8 @@ L’étude compare onze méthodes appartenant à trois groupes.
 
 Les modèles sont réestimés sur la période d’apprentissage, puis comparés sur **les douze mois de 2024 de la série corrigée**. L’évaluation utilise l’erreur quadratique moyenne (**MSE**), le **R² hors échantillon** par rapport à la méthode naïve saisonnière et le cumul des erreurs quadratiques de prévision (**CSPE**).
 
+La correction des points atypiques est effectuée sur l’ensemble de la série avant la séparation entre apprentissage et test. Les observations de 2024 contribuent donc au prétraitement de la série sur laquelle les prévisions sont évaluées.
+
 Le **test de Diebold-Mariano** complète cette comparaison en évaluant les pertes de prévision des modèles par rapport à un modèle **AR(1)**.
 
 ## Quelques résultats
@@ -90,6 +92,7 @@ Le SARIMA automatique présente un meilleur AIC en échantillon, tandis que le S
 ```text
 prevision-trafic-aerien-france/
 ├── README.md
+├── .gitattributes
 ├── code/
 │   └── code_TPC_Amelie_PIRES.qmd
 ├── data/
