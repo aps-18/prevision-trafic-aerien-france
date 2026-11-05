@@ -25,8 +25,11 @@ library(seastests)
 ```{r}
 # Création d'une seule database
 
+racine_projet <- if (file.exists("data/df.csv")) "." else ".."
+racine_projet <- normalizePath(racine_projet, winslash = "/")
+
 # files <- list.files(
-#   path = "/Users/ameliepires/Desktop/Documents/FAC/M1/S2/CM techniques de prévision et conjoncture/dossier1/asp-apt-2007-2024",
+#   path = file.path(racine_projet, "data", "asp-apt-2007-2024"),
 #   pattern = "\\.csv$",
 #   full.names = TRUE
 # )
@@ -57,11 +60,11 @@ library(seastests)
 #   )%>%
 #   arrange(date)
 # 
-# write_csv(df, "df.csv")
+# write_csv(df, file.path(racine_projet, "data", "df.csv"))
 
 # importation de la database
-df <- read_csv("df.csv",show_col_types = FALSE) |>
-  mutate(date = as.Date(date),
+df <- read_csv(file.path(racine_projet, "data", "df.csv"), show_col_types = FALSE) |>
+mutate(date = as.Date(date),
          pax_total = as.numeric(pax_total)) |>
   arrange(date)
 
